@@ -8,9 +8,10 @@ import logging
 import os
 import shutil
 import warnings
+import yaml
 from collections import OrderedDict
 from pathlib import Path
-from typing import Any
+from typing import Any, List
 
 from binaryornot.check import is_binary
 from jinja2 import Environment, FileSystemLoader
@@ -26,6 +27,7 @@ from cookiecutter.exceptions import (
 from cookiecutter.find import find_template
 from cookiecutter.hooks import run_hook_from_repo_dir
 from cookiecutter.prompt import YesNoPrompt
+from cookiecutter.variables import CookiecutterVariable
 from cookiecutter.utils import (
     create_env_with_context,
     make_sure_path_exists,
@@ -47,7 +49,7 @@ def is_copy_only_path(path: str, context: dict[str, Any]) -> bool:
     :param context: cookiecutter context.
     """
     try:
-        for dont_render in context['cookiecutter']['_copy_without_render']:
+        for dont_render in context['cookiecutter'].get('_copy_without_render', CookiecutterVariable(name='_copy_without_render', value=[])).value:
             if fnmatch.fnmatch(path, dont_render):
                 return True
     except KeyError:
@@ -138,22 +140,27 @@ def generate_context(
 
     try:
         with open(context_file, encoding='utf-8') as file_handle:
-            obj = json.load(file_handle, object_pairs_hook=OrderedDict)
+            if context_file.split(".")[-1] == "yaml":
+                obj = yaml.safe_load(file_handle)
+            else:
+                obj = json.load(file_handle, object_pairs_hook=OrderedDict)
     except ValueError as e:
         # JSON decoding error.  Let's throw a new exception that is more
         # friendly for the developer or user.
         full_fpath = os.path.abspath(context_file)
         json_exc_message = str(e)
         our_exc_message = (
-            f"JSON decoding error while loading '{full_fpath}'. "
+            f"Decoding error while loading '{full_fpath}'. "
             f"Decoding error details: '{json_exc_message}'"
         )
         raise ContextDecodingException(our_exc_message) from e
 
+    variables: CookiecutterVariable = CookiecutterVariable.from_dict(obj)
+
     # Add the Python object to the context dictionary
     file_name = os.path.split(context_file)[1]
     file_stem = file_name.split('.')[0]
-    context[file_stem] = obj
+    context[file_stem] = variables
 
     # Overwrite context variable defaults with the default context from the
     # user's global config, if available
@@ -201,7 +208,7 @@ def generate_file(
     # Render the path to the output file (not including the root project dir)
     outfile_tmpl = env.from_string(infile)
 
-    outfile = os.path.join(project_dir, outfile_tmpl.render(**context))
+    outfile = os.path.join(project_dir, outfile_tmpl.render(cookiecutter=context['cookiecutter'].to_cookiecutter_dict()))
     file_name_is_empty = os.path.isdir(outfile)
     if file_name_is_empty:
         logger.debug('The resulting file name is empty: %s', outfile)
@@ -233,11 +240,11 @@ def generate_file(
         # information about syntax error location
         exception.translated = False
         raise
-    rendered_file = tmpl.render(**context)
+    rendered_file = tmpl.render(cookiecutter=context['cookiecutter'].to_cookiecutter_dict())
 
-    if context['cookiecutter'].get('_new_lines', False):
+    if context['cookiecutter'].get('_new_lines') is not None:
         # Use `_new_lines` from context, if configured.
-        newline = context['cookiecutter']['_new_lines']
+        newline = context['cookiecutter'].get('_new_lines').value
         logger.debug('Using configured newline character %s', repr(newline))
     else:
         # Detect original file newline to output the rendered file.
@@ -270,7 +277,8 @@ def render_and_create_dir(
         raise EmptyDirNameException(msg)
 
     name_tmpl = environment.from_string(dirname)
-    rendered_dirname = name_tmpl.render(**context)
+
+    rendered_dirname = name_tmpl.render(cookiecutter=context['cookiecutter'].to_cookiecutter_dict())
 
     dir_to_create = Path(output_dir, rendered_dirname)
 

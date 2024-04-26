@@ -53,6 +53,20 @@ def expand_abbreviations(template: str, abbreviations: dict[str, str]) -> str:
     return template
 
 
+def repository_has_cookiecutter_yaml(repo_directory: str) -> bool:
+    """Determine if `repo_directory` contains a `cookiecutter.json` file.
+
+    :param repo_directory: The candidate repository directory.
+    :return: True if the `repo_directory` is valid, else False.
+    """
+    repo_directory_exists = os.path.isdir(repo_directory)
+
+    repo_config_exists = os.path.isfile(
+        os.path.join(repo_directory, 'cookiecutter.yaml')
+    )
+    return repo_directory_exists and repo_config_exists
+
+
 def repository_has_cookiecutter_json(repo_directory: str) -> bool:
     """Determine if `repo_directory` contains a `cookiecutter.json` file.
 
@@ -75,8 +89,8 @@ def determine_repo_dir(
     no_input: bool,
     password: str | None = None,
     directory: str | None = None,
-) -> tuple[str, bool]:
-    """
+) -> tuple[str, bool, str]:
+    """,
     Locate the repository directory from a template reference.
 
     Applies repository abbreviations to the template reference.
@@ -129,8 +143,11 @@ def determine_repo_dir(
         ]
 
     for repo_candidate in repository_candidates:
-        if repository_has_cookiecutter_json(repo_candidate):
-            return repo_candidate, cleanup
+
+        if repository_has_cookiecutter_yaml(repo_candidate):
+            return repo_candidate, cleanup, "cookiecutter.yaml"
+        elif repository_has_cookiecutter_json(repo_candidate):
+            return repo_candidate, cleanup, "cookiecutter.json"
 
     raise RepositoryNotFound(
         'A valid repository for "{}" could not be found in the following '

@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 import os
 import sys
-from copy import copy
+from copy import copy, deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -19,9 +19,10 @@ from cookiecutter.exceptions import InvalidModeException
 from cookiecutter.generate import generate_context, generate_files
 from cookiecutter.hooks import run_pre_prompt_hook
 from cookiecutter.prompt import choose_nested_template, prompt_for_config
-from cookiecutter.replay import dump, load
+# from cookiecutter.replay import dump, loads
 from cookiecutter.repository import determine_repo_dir
 from cookiecutter.utils import rmtree
+from cookiecutter.variables import CookiecutterVariable
 
 logger = logging.getLogger(__name__)
 
@@ -69,18 +70,18 @@ def cookiecutter(
     :param keep_project_on_failure: If `True` keep generated project directory even when
         generation fails
     """
-    if replay and ((no_input is not False) or (extra_context is not None)):
-        err_msg = (
-            "You can not use both replay and no_input or extra_context "
-            "at the same time."
-        )
-        raise InvalidModeException(err_msg)
+    # if replay and ((no_input is not False) or (extra_context is not None)):
+    #     err_msg = (
+    #         "You can not use both replay and no_input or extra_context "
+    #         "at the same time."
+    #     )
+    #     raise InvalidModeException(err_msg)
 
     config_dict = get_user_config(
         config_file=config_file,
         default_config=default_config,
     )
-    base_repo_dir, cleanup_base_repo_dir = determine_repo_dir(
+    base_repo_dir, cleanup_base_repo_dir, cookiecutter_file = determine_repo_dir(
         template=template,
         abbreviations=config_dict['abbreviations'],
         clone_to_dir=config_dict['cookiecutters_dir'],
@@ -97,52 +98,52 @@ def cookiecutter(
 
     import_patch = _patch_import_path_for_repo(repo_dir)
     template_name = os.path.basename(os.path.abspath(repo_dir))
-    if replay:
-        with import_patch:
-            if isinstance(replay, bool):
-                context_from_replayfile = load(config_dict['replay_dir'], template_name)
-            else:
-                path, template_name = os.path.split(os.path.splitext(replay)[0])
-                context_from_replayfile = load(path, template_name)
+    # if replay:
+    #     with import_patch:
+    #         if isinstance(replay, bool):
+    #             context_from_replayfile = load(config_dict['replay_dir'], template_name)
+    #         else:
+    #             path, template_name = os.path.split(os.path.splitext(replay)[0])
+    #             context_from_replayfile = load(path, template_name)
 
-    context_file = os.path.join(repo_dir, 'cookiecutter.json')
+    context_file = os.path.join(repo_dir, cookiecutter_file)
     logger.debug('context_file is %s', context_file)
 
-    if replay:
-        context = generate_context(
-            context_file=context_file,
-            default_context=config_dict['default_context'],
-            extra_context=None,
-        )
-        logger.debug('replayfile context: %s', context_from_replayfile)
-        items_for_prompting = {
-            k: v
-            for k, v in context['cookiecutter'].items()
-            if k not in context_from_replayfile['cookiecutter']
-        }
-        context_for_prompting = {}
-        context_for_prompting['cookiecutter'] = items_for_prompting
-        context = context_from_replayfile
-        logger.debug('prompting context: %s', context_for_prompting)
-    else:
-        context = generate_context(
-            context_file=context_file,
-            default_context=config_dict['default_context'],
-            extra_context=extra_context,
-        )
-        context_for_prompting = context
+    # if replay:
+    #     context = generate_context(
+    #         context_file=context_file,
+    #         default_context=config_dict['default_context'],
+    #         extra_context=None,
+    #     )
+    #     logger.debug('replayfile context: %s', context_from_replayfile)
+    #     context_for_prompting = {}
+    #     context_for_prompting['cookiecutter'] = deepcopy(context['cookiecutter'])
+    #     context = context_from_replayfile
+    #     logger.debug('prompting context: %s', context_for_prompting)
+    # else:
+    #     context = generate_context(
+    #         context_file=context_file,
+    #         default_context=config_dict['default_context'],
+    #         extra_context=extra_context,
+    #     )
+    #     context_for_prompting = context
+
+    context = generate_context(
+        context_file=context_file,
+        default_context=config_dict['default_context'],
+        extra_context=extra_context,
+    )
+    context_for_prompting = context
     # preserve the original cookiecutter options
-    # print(context['cookiecutter'])
-    context['_cookiecutter'] = {
-        k: v for k, v in context['cookiecutter'].items() if not k.startswith("_")
-    }
+    context['_cookiecutter'] = deepcopy(context['cookiecutter']) # TODO: This should drop private variables
+
 
     # prompt the user to manually configure at the command line.
     # except when 'no-input' flag is set
 
     with import_patch:
-        if {"template", "templates"} & set(context["cookiecutter"].keys()):
-            nested_template = choose_nested_template(context, repo_dir, no_input)
+        if context['cookiecutter'].get('template') is not None:
+            nested_template = choose_nested_template(context['cookiecutter'].get('template'), repo_dir, no_input)
             return cookiecutter(
                 template=nested_template,
                 checkout=checkout,
@@ -160,25 +161,23 @@ def cookiecutter(
                 keep_project_on_failure=keep_project_on_failure,
             )
         if context_for_prompting['cookiecutter']:
-            context['cookiecutter'].update(
-                prompt_for_config(context_for_prompting, no_input)
-            )
+            context['cookiecutter'].update(prompt_for_config(context_for_prompting, no_input))
 
     logger.debug('context is %s', context)
 
     # include template dir or url in the context dict
-    context['cookiecutter']['_template'] = template
-
+    context['cookiecutter'].variables.append(CookiecutterVariable(name='_template', value=template))
+    
     # include output+dir in the context dict
-    context['cookiecutter']['_output_dir'] = os.path.abspath(output_dir)
+    context['cookiecutter'].variables.append(CookiecutterVariable(name='_output_dir', value=os.path.abspath(output_dir)))
 
     # include repo dir or url in the context dict
-    context['cookiecutter']['_repo_dir'] = f"{repo_dir}"
+    context['cookiecutter'].variables.append(CookiecutterVariable(name='_repo_dir', value=f"{repo_dir}"))
 
     # include checkout details in the context dict
-    context['cookiecutter']['_checkout'] = checkout
+    context['cookiecutter'].variables.append(CookiecutterVariable(name='_checkout', value=checkout))
 
-    dump(config_dict['replay_dir'], template_name, context)
+    # dump(config_dict['replay_dir'], template_name, context)
 
     # Create project from local context and project template.
     with import_patch:

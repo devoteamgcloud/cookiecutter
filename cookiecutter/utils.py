@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any, Iterator
 from jinja2.ext import Extension
 
 from cookiecutter.environment import StrictEnvironment
+from cookiecutter.variables import CookiecutterVariable
 
 if TYPE_CHECKING:
     from jinja2 import Environment
@@ -99,6 +100,6 @@ def create_tmp_repo_dir(repo_dir: Path | str) -> Path:
 
 def create_env_with_context(context: dict[str, Any]) -> StrictEnvironment:
     """Create a jinja environment using the provided context."""
-    envvars = context.get('cookiecutter', {}).get('_jinja2_env_vars', {})
+    envvars = context.get('cookiecutter', CookiecutterVariable()).get('_jinja2_env_vars', CookiecutterVariable(name='_jinja2_env_vars', value={})).value
 
     return StrictEnvironment(context=context, keep_trailing_newline=True, **envvars)

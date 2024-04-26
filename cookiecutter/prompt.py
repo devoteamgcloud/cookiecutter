@@ -9,18 +9,17 @@ import sys
 from collections import OrderedDict
 from itertools import starmap
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Union
+from typing import Any, Callable, Dict, Iterator, List, Union
 
+from jinja2 import Environment
 from jinja2.exceptions import UndefinedError
 from rich.prompt import Confirm, InvalidResponse, Prompt, PromptBase
 from typing_extensions import TypeAlias
 
 from cookiecutter.exceptions import UndefinedVariableInTemplate
 from cookiecutter.utils import create_env_with_context, rmtree
-
-if TYPE_CHECKING:
-    from jinja2 import Environment
-
+from cookiecutter.environment import StrictEnvironment
+from cookiecutter.variables import CookiecutterVariable
 
 def read_user_variable(var_name: str, default_value, prompts=None, prefix: str = ""):
     """Prompt user for variable and return the entered value or given default.
@@ -107,7 +106,7 @@ def read_user_choice(var_name: str, options: list, prompts=None, prefix: str = "
     question = f"Select {var_name}"
 
     choice_lines: Iterator[str] = starmap(
-        "    [bold magenta]{}[/] - [bold]{}[/]".format, choice_map.items()
+        "    [bold magenta]{}[/] - [bold]{}[/]".format, [(k, v["name"]) for k, v in choice_map.items()]
     )
 
     # Handle if human-readable prompt is provided
@@ -118,12 +117,11 @@ def read_user_choice(var_name: str, options: list, prompts=None, prefix: str = "
             if "__prompt__" in prompts[var_name]:
                 question = prompts[var_name]["__prompt__"]
             choice_lines = (
-                f"    [bold magenta]{i}[/] - [bold]{prompts[var_name][p]}[/]"
-                if p in prompts[var_name]
-                else f"    [bold magenta]{i}[/] - [bold]{p}[/]"
+                f"    [bold magenta]{i}[/] - [bold]{prompts[var_name][p["name"]]}[/]"
+                if p["name"] in prompts[var_name]
+                else f"    [bold magenta]{i}[/] - [bold]{p["name"]}[/]"
                 for i, p in choice_map.items()
             )
-
     prompt = '\n'.join(
         (
             f"{prefix}{question}",
@@ -193,6 +191,62 @@ def read_user_dict(var_name: str, default_value, prompts=None, prefix: str = "")
     return user_value
 
 
+def read_user_variable_json(
+    var_name: str,
+    exit_condition: str,
+    prefix: str = "",
+    inner_func: Callable = None,
+    inner_func_args: Dict[str, Any] = [],
+):
+    """
+    Prompt user for multiple elements and return as dict.
+
+    :param var_name: name of dict variable
+    :param exit_condition: input string to stop the loop
+    :param inner_func: function to call during loop
+    :param inner_func_args: arguments of inner function
+    :return: dict of strings to empty dict or inner func result
+    """
+    variables = dict()
+    loop = True
+
+    while loop:
+        var = read_user_variable(
+            var_name=var_name, default_value=exit_condition, prefix=prefix
+        )
+        if var != exit_condition:
+            variables[var] = dict()
+            if inner_func is not None:
+                variables[var] = inner_func(prefix=prefix, **inner_func_args)
+        else:
+            loop = prompt_loop_exit(prefix=prefix)
+
+    return variables
+
+
+def read_user_variable_list(var_name: str, exit_condition: str, prefix: str = ""):
+    """
+    Prompt user for multiple elements and return as list.
+
+    :param var_name: name of dict variable
+    :param exit_condition: input string to stop the loop
+    :return: list of strings
+    """
+    return list(read_user_variable_json(var_name, exit_condition, prefix).keys())
+
+
+def prompt_loop_exit(prefix: str = ""):
+    """
+    Prompts the user for input to exit a loop.
+
+    :return: True to continue looping, False to stop loop
+    """
+    stop_loop = read_user_yes_no(
+        var_name="Exit?", default_value="Yes", prefix=prefix
+    )
+    return not stop_loop
+
+
 _Raw: TypeAlias = Union[bool, Dict["_Raw", "_Raw"], List["_Raw"], str, None]
 
 
@@ -236,27 +290,24 @@ def render_variable(
     return template.render(cookiecutter=cookiecutter_dict)
 
 
-def _prompts_from_options(options: dict) -> dict:
+def _prompts_from_options(options: list) -> dict:
     """Process template options and return friendly prompt information."""
     prompts = {"__prompt__": "Select a template"}
-    for option_key, option_value in options.items():
-        title = str(option_value.get("title", option_key))
-        description = option_value.get("description", option_key)
+    for opt in options:
+        title = opt["name"]
+        description = opt.get("description", "")
         label = title if title == description else f"{title} ({description})"
-        prompts[option_key] = label
+        prompts[title] = label
     return prompts
 
 
-def prompt_choice_for_template(
-    key: str, options: dict, no_input: bool
-) -> OrderedDict[str, Any]:
+def prompt_choice_for_template(options: list, no_input: bool):
     """Prompt user with a set of options to choose from.
 
     :param no_input: Do not prompt for user input and return the first available option.
     """
-    opts = list(options.keys())
-    prompts = {"templates": _prompts_from_options(options)}
-    return opts[0] if no_input else read_user_choice(key, opts, prompts, "")
+    prompts = {"template": _prompts_from_options(options)}
+    return options[0] if no_input else read_user_choice("template", options, prompts, "")
 
 
 def prompt_choice_for_config(
@@ -288,81 +339,60 @@ def prompt_for_config(
     """
     cookiecutter_dict = OrderedDict([])
     env = create_env_with_context(context)
-    prompts = context['cookiecutter'].pop('__prompts__', {})
 
     # First pass: Handle simple and raw variables, plus choices.
     # These must be done first because the dictionaries keys and
     # values might refer to them.
     count = 0
-    all_prompts = context['cookiecutter'].items()
-    visible_prompts = [k for k, _ in all_prompts if not k.startswith("_")]
+    visible_prompts = [v.prompt for v in context['cookiecutter'].variables if not v.name.startswith("_")]
     size = len(visible_prompts)
-    for key, raw in all_prompts:
-        if key.startswith('_') and not key.startswith('__'):
-            cookiecutter_dict[key] = raw
+    for v in context['cookiecutter'].variables:
+        if v.name.startswith('_') and not v.name.startswith('__'):
+            cookiecutter_dict[v.name] = v.value
             continue
-        elif key.startswith('__'):
-            cookiecutter_dict[key] = render_variable(env, raw, cookiecutter_dict)
+        elif v.name.startswith('__'):
+            cookiecutter_dict[v.name] = render_variable(env, v.value, cookiecutter_dict)
             continue
 
-        if not isinstance(raw, dict):
+        prefix = ""
+        if not isinstance(v.value, dict):
             count += 1
             prefix = f"  [dim][{count}/{size}][/] "
 
         try:
-            if isinstance(raw, list):
-                # We are dealing with a choice variable
-                val = prompt_choice_for_config(
-                    cookiecutter_dict, env, key, raw, no_input, prompts, prefix
-                )
-                cookiecutter_dict[key] = val
-            elif isinstance(raw, bool):
-                # We are dealing with a boolean variable
-                if no_input:
-                    cookiecutter_dict[key] = render_variable(
-                        env, raw, cookiecutter_dict
-                    )
-                else:
-                    cookiecutter_dict[key] = read_user_yes_no(key, raw, prompts, prefix)
-            elif not isinstance(raw, dict):
-                # We are dealing with a regular variable
-                val = render_variable(env, raw, cookiecutter_dict)
-
-                if not no_input:
-                    val = read_user_variable(key, val, prompts, prefix)
-
-                cookiecutter_dict[key] = val
+            cookiecutter_dict = get_cookiecutter_values(
+                v, cookiecutter_dict, env, no_input, prefix
+            )
         except UndefinedError as err:
-            msg = f"Unable to render variable '{key}'"
+            msg = f"Unable to render variable '{v.name}'"
             raise UndefinedVariableInTemplate(msg, err, context) from err
 
     # Second pass; handle the dictionaries.
-    for key, raw in context['cookiecutter'].items():
+    for v in context['cookiecutter'].variables:
         # Skip private type dicts not to be rendered.
-        if key.startswith('_') and not key.startswith('__'):
+        if v.name.startswith('_') and not v.name.startswith('__'):
             continue
 
-        try:
-            if isinstance(raw, dict):
-                # We are dealing with a dict variable
-                count += 1
-                prefix = f"  [dim][{count}/{size}][/] "
-                val = render_variable(env, raw, cookiecutter_dict)
+        else:
+            try:
+                if isinstance(v.value, dict):
+                    # We are dealing with a dict variable
+                    count += 1
+                    prefix = f"  [dim][{count}/{size}][/] "
+                    val = render_variable(env, v.value, cookiecutter_dict)
 
-                if not no_input and not key.startswith('__'):
-                    val = read_user_dict(key, val, prompts, prefix)
+                    if not no_input and not v.name.startswith('__'):
+                        val = read_user_dict(v.name, val, {v.name: v.prompt}, prefix)
 
-                cookiecutter_dict[key] = val
-        except UndefinedError as err:
-            msg = f"Unable to render variable '{key}'"
-            raise UndefinedVariableInTemplate(msg, err, context) from err
+                    cookiecutter_dict[v.name] = val
+            except UndefinedError as err:
+                msg = f"Unable to render variable '{v.name}'"
+                raise UndefinedVariableInTemplate(msg, err, context) from err
 
     return cookiecutter_dict
 
 
-def choose_nested_template(
-    context: dict[str, Any], repo_dir: Path | str, no_input: bool = False
-) -> str:
+def choose_nested_template(template_variable: CookiecutterVariable, repo_dir: str, no_input: bool = False) -> str:
     """Prompt user to select the nested template to use.
 
     :param context: Source for field names and sample values.
@@ -370,24 +400,8 @@ def choose_nested_template(
     :param no_input: Do not prompt for user input and use only values from context.
     :returns: Path to the selected template.
     """
-    cookiecutter_dict: OrderedDict[str, Any] = OrderedDict([])
-    env = create_env_with_context(context)
-    prefix = ""
-    prompts = context['cookiecutter'].pop('__prompts__', {})
-    key = "templates"
-    config = context['cookiecutter'].get(key, {})
-    if config:
-        # Pass
-        val = prompt_choice_for_template(key, config, no_input)
-        template = config[val]["path"]
-    else:
-        # Old style
-        key = "template"
-        config = context['cookiecutter'].get(key, [])
-        val = prompt_choice_for_config(
-            cookiecutter_dict, env, key, config, no_input, prompts, prefix
-        )
-        template = re.search(r'\((.+)\)', val).group(1)
+    val = prompt_choice_for_template(template_variable.get_metadata(), no_input)
+    template = val["path"]
 
     template = Path(template) if template else None
     if not (template and not template.is_absolute()):
@@ -435,3 +449,42 @@ def prompt_and_delete(path: Path | str, no_input: bool = False) -> bool:
             return False
 
         sys.exit()
+
+def get_cookiecutter_values(v: CookiecutterVariable, cookiecutter_dict: dict, env: StrictEnvironment, no_input: bool, prefix: str, parent: str = ""):
+    """Get cookiecutter values from keys.
+
+    :param key: key to retrieve value for
+    :param value: raw value to get
+    :param cookiecutter_dict: current cookiecutter dict
+    :param env: jinja environment
+    :param no_input:  do not prompt for user input and use only values from context
+    :param prompts: dictionary of prompts
+    :param prefix: prefix for prompt
+    """
+    name = parent + v.name
+    if isinstance(v.value, list):
+        # We are dealing with a choice variable
+        val = prompt_choice_for_config(
+            cookiecutter_dict, env, v.name, v.value, no_input, {v.name: v.prompt}, prefix
+        )
+        cookiecutter_dict[name] = val
+    elif isinstance(v.value, bool):
+        # We are dealing with a boolean variable
+        if no_input:
+            cookiecutter_dict[name] = render_variable(
+                env, v.value, cookiecutter_dict
+            )
+        else:
+            cookiecutter_dict[name] = read_user_yes_no(v.name, v.value, {v.name: v.prompt}, prefix)
+    elif not isinstance(v.value, dict):
+        # We are dealing with a regular variable
+        val = render_variable(env, v.value, cookiecutter_dict)
+
+        if not no_input:
+            val = read_user_variable(v.name, val, {v.name: v.prompt}, prefix)
+
+        cookiecutter_dict[name] = val
+    for branch in v.variables:
+        if branch.matches == cookiecutter_dict[name]:
+            cookiecutter_dict = get_cookiecutter_values(branch, cookiecutter_dict, env, no_input, prefix, name + "/")
+    return cookiecutter_dict

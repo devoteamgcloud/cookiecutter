@@ -125,7 +125,7 @@ def run_script_with_context(
     with tempfile.NamedTemporaryFile(delete=False, mode='wb', suffix=extension) as temp:
         env = create_env_with_context(context)
         template = env.from_string(contents)
-        output = template.render(**context)
+        output = template.render(cookiecutter=context['cookiecutter'].to_cookiecutter_dict())
         temp.write(output.encode('utf-8'))
 
     run_script(temp.name, cwd)

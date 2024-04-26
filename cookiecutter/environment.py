@@ -7,7 +7,7 @@ from typing import Any
 from jinja2 import Environment, StrictUndefined
 
 from cookiecutter.exceptions import UnknownExtension
-
+from cookiecutter.variables import CookiecutterVariable
 
 class ExtensionLoaderMixin:
     """Mixin providing sane loading of extensions specified in a given context.
@@ -47,12 +47,11 @@ class ExtensionLoaderMixin:
         If context does not contain the relevant info, return an empty
         list instead.
         """
-        try:
-            extensions = context['cookiecutter']['_extensions']
-        except KeyError:
+        extensions = context['cookiecutter'].get('_extensions', CookiecutterVariable(name='_extensions', value=[]))
+        if extensions.value == []:
             return []
         else:
-            return [str(ext) for ext in extensions]
+            return [str(ext) for ext in extensions.value]
 
 
 class StrictEnvironment(ExtensionLoaderMixin, Environment):
