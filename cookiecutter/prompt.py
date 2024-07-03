@@ -290,7 +290,7 @@ def render_variable(
     return template.render(cookiecutter=cookiecutter_dict)
 
 
-def _prompts_from_options(options: list) -> dict:
+def _prompts_from_options(options: Dict[str, Any]) -> dict:
     """Process template options and return friendly prompt information."""
     prompts = {"__prompt__": "Select a template"}
     for opt in options:
@@ -301,7 +301,7 @@ def _prompts_from_options(options: list) -> dict:
     return prompts
 
 
-def prompt_choice_for_template(options: list, no_input: bool):
+def prompt_choice_for_template(options: Dict[str, Any], no_input: bool):
     """Prompt user with a set of options to choose from.
 
     :param no_input: Do not prompt for user input and return the first available option.
