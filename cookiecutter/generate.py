@@ -395,6 +395,14 @@ def generate_files(
         env.loader = FileSystemLoader(['.', '../templates'])
 
         for root, dirs, files in os.walk('.'):
+
+            name_tmpl = env.from_string(root)
+
+            rendered_root = name_tmpl.render(cookiecutter=context['cookiecutter'].to_cookiecutter_dict())
+            if rendered_root[-1] == "/":
+                # Conditional folder generation
+                continue
+
             # We must separate the two types of dirs into different lists.
             # The reason is that we don't want ``os.walk`` to go through the
             # unrendered directories, since they will just be copied.
