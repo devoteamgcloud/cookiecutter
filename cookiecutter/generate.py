@@ -282,6 +282,10 @@ def render_and_create_dir(
 
     dir_to_create = Path(output_dir, rendered_dirname)
 
+    if rendered_dirname[-3:] == "/./":
+        # If path ends with '/./', the rendered string is empty (conditional folder generation)
+        return dir_to_create, False
+    
     logger.debug(
         'Rendered dir %s must exist in output_dir %s', dir_to_create, output_dir
     )
