@@ -117,9 +117,9 @@ def read_user_choice(var_name: str, options: list, prompts=None, prefix: str = "
             if "__prompt__" in prompts[var_name]:
                 question = prompts[var_name]["__prompt__"]
             choice_lines = (
-                f"    [bold magenta]{i}[/] - [bold]{prompts[var_name][p["name"]]}[/]"
+                f"    [bold magenta]{i}[/] - [bold]{prompts[var_name][p['name']]}[/]"
                 if p["name"] in prompts[var_name]
-                else f"    [bold magenta]{i}[/] - [bold]{p["name"]}[/]"
+                else f"    [bold magenta]{i}[/] - [bold]{p['name']}[/]"
                 for i, p in choice_map.items()
             )
     prompt = '\n'.join(
