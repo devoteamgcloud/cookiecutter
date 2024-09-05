@@ -1,0 +1,11 @@
+variables:
+
+  - name: "template"
+    metadata: 
+      - name: "Python library"
+        description: "Template for a Python library"
+        path: "./path/to/template1"
+
+      - name: "Java application"
+        description: "Template for a Java application"
+        path: "./path/to/template2"

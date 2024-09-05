@@ -1,0 +1,34 @@
+variables:
+
+  - name: "sample_string"
+    value: "hello"
+    prompt: "Insert a string value"
+
+  - name: "sample_boolean"
+    value: true
+    prompt: "Select true or false"
+
+  - name: "sample_list"
+    value: 
+      - name: "Option 1"
+      - name: "Option 2"
+      - name: "Option 3"
+    prompt: "Choose an option"
+
+  - name: "sample_branch"
+    value: true
+    prompt: "Select true or false to see more options"
+    variables:
+
+    - name: "nested_branch_true"
+      matches: true
+      value: "hello"
+      prompt: "Insert a string value"
+
+    - name: "nested_branch_false"
+      matches: false
+      value: 0
+      prompt: "Insert an integer value"
+
+  - name: "__private_variable"
+    value: "A sample string: {{ cookiecutter.sample_string }}"
