@@ -467,7 +467,7 @@ def get_cookiecutter_values(v: CookiecutterVariable, cookiecutter_dict: dict, en
         val = prompt_choice_for_config(
             cookiecutter_dict, env, v.name, v.value, no_input, {v.name: v.prompt}, prefix
         )
-        cookiecutter_dict[name] = val
+        cookiecutter_dict[name] = val["name"]
     elif isinstance(v.value, bool):
         # We are dealing with a boolean variable
         if no_input:
