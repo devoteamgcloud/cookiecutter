@@ -281,7 +281,7 @@ def render_variable(
             for k, v in raw.items()
         }
     elif isinstance(raw, list):
-        return [render_variable(env, v, cookiecutter_dict) for v in raw]
+        return [render_variable(env, v, cookiecutter_dict)["name"] for v in raw]
     elif not isinstance(raw, str):
         raw = str(raw)
 
