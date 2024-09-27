@@ -50,7 +50,7 @@ def is_copy_only_path(path: str, context: dict[str, Any]) -> bool:
     """
     try:
         for dont_render in context['cookiecutter'].get('_copy_without_render', CookiecutterVariable(name='_copy_without_render', value=[])).value:
-            if fnmatch.fnmatch(path, dont_render):
+            if fnmatch.fnmatch(path, dont_render["name"]):
                 return True
     except KeyError:
         return False
