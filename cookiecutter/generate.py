@@ -423,7 +423,7 @@ def generate_files(
             for copy_dir in copy_dirs:
                 indir = os.path.normpath(os.path.join(root, copy_dir))
                 outdir = os.path.normpath(os.path.join(project_dir, indir))
-                outdir = env.from_string(outdir).render(**context)
+                outdir = env.from_string(outdir).render(cookiecutter=context['cookiecutter'].to_cookiecutter_dict())
                 logger.debug('Copying dir %s to %s without rendering', indir, outdir)
 
                 # The outdir is not the root dir, it is the dir which marked as copy
@@ -453,7 +453,7 @@ def generate_files(
                 infile = os.path.normpath(os.path.join(root, f))
                 if is_copy_only_path(infile, context):
                     outfile_tmpl = env.from_string(infile)
-                    outfile_rendered = outfile_tmpl.render(**context)
+                    outfile_rendered = outfile_tmpl.render(cookiecutter=context['cookiecutter'].to_cookiecutter_dict())
                     outfile = os.path.join(project_dir, outfile_rendered)
                     logger.debug(
                         'Copying file %s to %s without rendering', infile, outfile
