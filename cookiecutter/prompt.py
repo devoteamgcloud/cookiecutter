@@ -329,6 +329,14 @@ def prompt_choice_for_config(
     return read_user_choice(key, rendered_options, prompts, prefix)
 
 
+def handle_private_vars(v: CookiecutterVariable, env: StrictEnvironment, cookiecutter_dict: dict, parent: str = ""):
+    name = parent + v.name
+    if v.name.startswith('__'):
+        cookiecutter_dict[name] = render_variable(env, v.value, cookiecutter_dict)
+    elif v.name.startswith('_'):
+        cookiecutter_dict[name] = v.value
+
+
 def prompt_for_config(
     context: dict[str, Any], no_input: bool = False
 ) -> OrderedDict[str, Any]:
@@ -347,11 +355,8 @@ def prompt_for_config(
     visible_prompts = [v.prompt for v in context['cookiecutter'].variables if not v.name.startswith("_")]
     size = len(visible_prompts)
     for v in context['cookiecutter'].variables:
-        if v.name.startswith('_') and not v.name.startswith('__'):
-            cookiecutter_dict[v.name] = v.value
-            continue
-        elif v.name.startswith('__'):
-            cookiecutter_dict[v.name] = render_variable(env, v.value, cookiecutter_dict)
+        if v.name.startswith('_'):
+            handle_private_vars(v, env, cookiecutter_dict)
             continue
 
         prefix = ""
@@ -486,5 +491,8 @@ def get_cookiecutter_values(v: CookiecutterVariable, cookiecutter_dict: dict, en
         cookiecutter_dict[name] = val
     for branch in v.variables:
         if branch.matches == cookiecutter_dict[name]:
-            cookiecutter_dict = get_cookiecutter_values(branch, cookiecutter_dict, env, no_input, prefix, name + "/")
+            if branch.name.startswith("_"):
+                handle_private_vars(branch, env, cookiecutter_dict, name + "/")
+            else:
+                cookiecutter_dict = get_cookiecutter_values(branch, cookiecutter_dict, env, no_input, prefix, name + "/")
     return cookiecutter_dict
