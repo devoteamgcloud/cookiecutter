@@ -65,62 +65,68 @@ def apply_overwrites_to_context(
     in_dictionary_variable: bool = False,
 ) -> None:
     """Modify the given context in place based on the overwrite_context."""
-    for variable, overwrite in overwrite_context.items():
-        if variable not in context:
+    variables = {context["variables"][i]["name"]: i for i in range(len(context["variables"]))}
+    for variable in overwrite_context:
+        if variable["name"] not in variables:
             if not in_dictionary_variable:
                 # We are dealing with a new variable on first level, ignore
                 continue
             # We are dealing with a new dictionary variable in a deeper level
-            context[variable] = overwrite
+            context["variables"].append(variable)
+            variables[variable["name"]] = len(context["variables"]) - 1
+        
+        context_value = context["variables"][variables[variable["name"]]]["value"]
 
-        context_value = context[variable]
-        if isinstance(context_value, list):
-            if in_dictionary_variable:
-                context[variable] = overwrite
-                continue
-            if isinstance(overwrite, list):
-                # We are dealing with a multichoice variable
-                # Let's confirm all choices are valid for the given context
-                if set(overwrite).issubset(set(context_value)):
+        ### Need to modify below to work with pre-provided context
+        overwrite = variable["value"]
+        if overwrite != context_value:
+            if isinstance(context_value, list):
+                if in_dictionary_variable:
                     context[variable] = overwrite
+                    continue
+                if isinstance(overwrite, list):
+                    # We are dealing with a multichoice variable
+                    # Let's confirm all choices are valid for the given context
+                    if set(overwrite).issubset(set(context_value)):
+                        context[variable] = overwrite
+                    else:
+                        raise ValueError(
+                            f"{overwrite} provided for multi-choice variable "
+                            f"{variable}, but valid choices are {context_value}"
+                        )
                 else:
+                    # We are dealing with a choice variable
+                    choices = {choice["name"]: i for i, choice in enumerate(context_value)}
+                    if overwrite in choices:
+                        # This overwrite is actually valid for the given context
+                        # Let's set it as default (by definition first item in list)
+                        # see ``cookiecutter.prompt.prompt_choice_for_config``
+                        default = context_value.pop(choices[overwrite])
+                        context_value.insert(0, default)
+                    else:
+                        raise ValueError(
+                            f"{overwrite} provided for choice variable "
+                            f"{variable}, but the choices are {context_value}."
+                        )
+            elif isinstance(context_value, dict) and isinstance(overwrite, dict):
+                # Partially overwrite some keys in original dict
+                apply_overwrites_to_context(
+                    context_value, overwrite, in_dictionary_variable=True
+                )
+                context[variable] = context_value
+            elif isinstance(context_value, bool) and isinstance(overwrite, str):
+                # We are dealing with a boolean variable
+                # Convert overwrite to its boolean counterpart
+                try:
+                    context[variable] = YesNoPrompt().process_response(overwrite)
+                except InvalidResponse as err:
                     raise ValueError(
-                        f"{overwrite} provided for multi-choice variable "
-                        f"{variable}, but valid choices are {context_value}"
-                    )
+                        f"{overwrite} provided for variable "
+                        f"{variable} could not be converted to a boolean."
+                    ) from err
             else:
-                # We are dealing with a choice variable
-                if overwrite in context_value:
-                    # This overwrite is actually valid for the given context
-                    # Let's set it as default (by definition first item in list)
-                    # see ``cookiecutter.prompt.prompt_choice_for_config``
-                    context_value.remove(overwrite)
-                    context_value.insert(0, overwrite)
-                else:
-                    raise ValueError(
-                        f"{overwrite} provided for choice variable "
-                        f"{variable}, but the choices are {context_value}."
-                    )
-        elif isinstance(context_value, dict) and isinstance(overwrite, dict):
-            # Partially overwrite some keys in original dict
-            apply_overwrites_to_context(
-                context_value, overwrite, in_dictionary_variable=True
-            )
-            context[variable] = context_value
-        elif isinstance(context_value, bool) and isinstance(overwrite, str):
-            # We are dealing with a boolean variable
-            # Convert overwrite to its boolean counterpart
-            try:
-                context[variable] = YesNoPrompt().process_response(overwrite)
-            except InvalidResponse as err:
-                raise ValueError(
-                    f"{overwrite} provided for variable "
-                    f"{variable} could not be converted to a boolean."
-                ) from err
-        else:
-            # Simply overwrite the value for this variable
-            context[variable] = overwrite
-
+                # Simply overwrite the value for this variable
+                context["variables"][variables[variable["name"]]]["value"] = overwrite
 
 def generate_context(
     context_file: str = 'cookiecutter.json',
@@ -155,13 +161,6 @@ def generate_context(
         )
         raise ContextDecodingException(our_exc_message) from e
 
-    variables: CookiecutterVariable = CookiecutterVariable.from_dict(obj)
-
-    # Add the Python object to the context dictionary
-    file_name = os.path.split(context_file)[1]
-    file_stem = file_name.split('.')[0]
-    context[file_stem] = variables
-
     # Overwrite context variable defaults with the default context from the
     # user's global config, if available
     if default_context:
@@ -171,6 +170,13 @@ def generate_context(
             warnings.warn(f"Invalid default received: {error}")
     if extra_context:
         apply_overwrites_to_context(obj, extra_context)
+
+    variables: CookiecutterVariable = CookiecutterVariable.from_dict(obj)
+
+    # Add the Python object to the context dictionary
+    file_name = os.path.split(context_file)[1]
+    file_stem = file_name.split('.')[0]
+    context[file_stem] = variables
 
     logger.debug('Context generated is %s', context)
     return context
