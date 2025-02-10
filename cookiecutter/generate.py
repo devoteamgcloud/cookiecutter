@@ -74,10 +74,9 @@ def apply_overwrites_to_context(
             # We are dealing with a new dictionary variable in a deeper level
             context["variables"].append(variable)
             variables[variable["name"]] = len(context["variables"]) - 1
-        
+
         context_value = context["variables"][variables[variable["name"]]]["value"]
 
-        ### Need to modify below to work with pre-provided context
         overwrite = variable["value"]
         if overwrite != context_value:
             if isinstance(context_value, list):
@@ -90,10 +89,11 @@ def apply_overwrites_to_context(
                     if set(overwrite).issubset(set(context_value)):
                         context[variable] = overwrite
                     else:
-                        raise ValueError(
+                        msg = (
                             f"{overwrite} provided for multi-choice variable "
                             f"{variable}, but valid choices are {context_value}"
                         )
+                        raise ValueError(msg)
                 else:
                     # We are dealing with a choice variable
                     choices = {choice["name"]: i for i, choice in enumerate(context_value)}
@@ -104,10 +104,11 @@ def apply_overwrites_to_context(
                         default = context_value.pop(choices[overwrite])
                         context_value.insert(0, default)
                     else:
-                        raise ValueError(
+                        msg = (
                             f"{overwrite} provided for choice variable "
                             f"{variable}, but the choices are {context_value}."
                         )
+                        raise ValueError(msg)
             elif isinstance(context_value, dict) and isinstance(overwrite, dict):
                 # Partially overwrite some keys in original dict
                 apply_overwrites_to_context(
@@ -120,13 +121,15 @@ def apply_overwrites_to_context(
                 try:
                     context[variable] = YesNoPrompt().process_response(overwrite)
                 except InvalidResponse as err:
-                    raise ValueError(
+                    msg = (
                         f"{overwrite} provided for variable "
                         f"{variable} could not be converted to a boolean."
-                    ) from err
+                    )
+                raise ValueError(msg) from err
             else:
                 # Simply overwrite the value for this variable
                 context["variables"][variables[variable["name"]]]["value"] = overwrite
+
 
 def generate_context(
     context_file: str = 'cookiecutter.json',

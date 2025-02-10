@@ -183,12 +183,11 @@ def read_user_dict(var_name: str, default_value, prompts=None, prefix: str = "")
         if prompts and var_name in prompts and prompts[var_name]
         else var_name
     )
-    user_value = JsonPrompt.ask(
+    return JsonPrompt.ask(
         f"{prefix}{question} [cyan bold]({DEFAULT_DISPLAY})[/]",
         default=default_value,
         show_default=False,
     )
-    return user_value
 
 
 def read_user_variable_json(
@@ -280,9 +279,9 @@ def render_variable(
             )
             for k, v in raw.items()
         }
-    elif isinstance(raw, list):
+    if isinstance(raw, list):
         return [render_variable(env, v, cookiecutter_dict)["name"] for v in raw]
-    elif not isinstance(raw, str):
+    if not isinstance(raw, str):
         raw = str(raw)
 
     template = env.from_string(raw)
